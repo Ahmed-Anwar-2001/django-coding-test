@@ -2,13 +2,19 @@ from django.views import generic
 from django.views.generic import ListView, UpdateView
 from django.shortcuts import render
 from django.urls import reverse_lazy
-from product.models import Product, ProductVariant, ProductVariantPrice, Variant
+from product.models import Product, ProductVariant, ProductVariantPrice, Variant, ProductImage
 from datetime import datetime
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.utils import timezone
 from django.utils.dateparse import parse_date
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from product.serializers import ProductSerializer, ProductVariantSerializer, ProductVariantPriceSerializer, ProductImageSerializer
+from django.middleware.csrf import get_token
+from django.http import JsonResponse
+import pytz
 
 class CreateProductView(generic.TemplateView):
     template_name = 'products/create.html'
@@ -51,13 +57,20 @@ class ProductListView(ListView):
             queryset = queryset.filter(productvariantprice__price__lte=price_to)
 
         if date:
-            queryset = queryset.filter(created_at=date)
-
+            try:
+                date = parse_date(date)
+                date = datetime.combine(date, datetime.min.time())  # Convert date to datetime
+                date = timezone.make_aware(date, pytz.UTC)
+                queryset = queryset.filter(created_at__date=date)
+            except ValueError:
+                # Handle the case when the date string is not in the correct format
+                pass
+        
         return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        queryset = self.get_queryset()  # Get the queryset
+        queryset = self.get_queryset()  
 
         # Paginate the queryset
         paginator = Paginator(queryset, self.paginate_by)
@@ -96,21 +109,72 @@ class ProductListView(ListView):
 
 
 
-class ProductUpdateView(UpdateView):
-    model = Product
-    template_name = 'products/update.html'
-    fields = ['title', 'description', 'sku']
+from django.shortcuts import get_object_or_404
 
-    def get_success_url(self):
-        return reverse_lazy('product:list.product')
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+
+@method_decorator(csrf_exempt, name='dispatch')
+class ProductUpdateView(APIView):
+
+    def get(self, request, pk, *args, **kwargs):
+        product = get_object_or_404(Product, pk=pk)
+        
+        # Prepare the context data
+        context = {
+            'product': {
+                'title': product.title,
+                'sku': product.sku,
+                'description': product.description,
+                'id': product.id
+            },
+            'variants': list(Variant.objects.filter(active=True).values('id', 'title')),
+            'product_variants': list(product.productvariant_set.all().values('id', 'variant__id', 'variant_title')),
+            'product_variant_prices': list(product.productvariantprice_set.all().values('id', 'price', 'stock', 'product_variant_one', 'product_variant_two', 'product_variant_three'))
+        }
+        print(context)
+        return render(request, 'products/update.html', context)
     
+    def post(self, request, pk, *args, **kwargs):
+        product = get_object_or_404(Product, pk=pk)
+        data = request.data
 
+        # Update Product
+        product.title = data.get('title', product.title)
+        product.sku = data.get('sku', product.sku)
+        product.description = data.get('description', product.description)
+        product.save()
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from product.models import Product
-from product.serializers import ProductSerializer, ProductVariantSerializer, ProductVariantPriceSerializer, ProductImageSerializer
+        # Update Product Images
+        product.images.all().delete()
+        for image_data in data.get('product_image', []):
+            ProductImage.objects.create(product=product, file_path=image_data['file_path'])
+
+        # Update Product Variants
+        product.productvariant_set.all().delete()
+        for variant_data in data.get('product_variant', []):
+            ProductVariant.objects.create(
+                product=product,
+                variant_id=variant_data['option'],
+                variant_title='/'.join(variant_data['tags'])
+            )
+
+        # Update Product Variant Prices
+        product.productvariantprice_set.all().delete()
+        for price_data in data.get('product_variant_prices', []):
+            ProductVariantPrice.objects.create(
+                product=product,
+                product_variant_one_id=price_data.get('product_variant_one'),
+                product_variant_two_id=price_data.get('product_variant_two'),
+                product_variant_three_id=price_data.get('product_variant_three'),
+                price=price_data.get('price', 0),
+                stock=price_data.get('stock', 0)
+            )
+
+        serializer = ProductSerializer(product)
+        return JsonResponse(serializer.data, safe=False)
+
+    
 
 
 
@@ -185,10 +249,6 @@ class ProductCreateApiView(APIView):
 
 
 
-
-
-from django.middleware.csrf import get_token
-from django.http import JsonResponse
 
 def get_csrf_token(request):
     token = get_token(request)

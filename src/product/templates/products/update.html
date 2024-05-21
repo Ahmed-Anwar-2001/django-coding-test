@@ -1,0 +1,231 @@
+{% extends 'backend/base.html' %}
+
+{% block title %} Update Product {% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-sm-flex align-items-center justify-content-between mb-4">
+        <h1 class="h3 mb-0 text-gray-800">Update Product</h1>
+        <a href="{% url 'product:list.product' %}" class="btn btn-primary">All Products</a>
+    </div>
+
+    <form id="productForm">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card shadow mb-4">
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="product_name">Product Name</label>
+                            <input type="text" id="product_name" name="product_name" value="{{ product.title }}" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="product_sku">Product SKU</label>
+                            <input type="text" id="product_sku" name="product_sku" value="{{ product.sku }}" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="description">Description</label>
+                            <textarea id="description" name="description" cols="30" rows="4" class="form-control" value="{{ product.description }}" placeholder="{{ product.description }}"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow mb-4">
+                    <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                        <h6 class="m-0 font-weight-bold text-primary">Media</h6>
+                    </div>
+                    <div class="card-body border">
+                        <input type="file" id="product_image" name="product_image" multiple class="form-control">
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card shadow mb-4">
+                    <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                        <h6 class="m-0 font-weight-bold text-primary">Variants</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="variantsContainer"></div>
+                    </div>
+                    <div class="card-footer">
+                        <button type="button" id="addVariant" class="btn btn-primary">Add another option</button>
+                    </div>
+
+                    <div class="card-header text-uppercase">Preview</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <td>Variant</td>
+                                        <td>Price</td>
+                                        <td>Stock</td>
+                                    </tr>
+                                </thead>
+                                <tbody id="variantsPreview">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-lg btn-primary">Save</button>
+        <button type="button" class="btn btn-secondary btn-lg" onclick="cancel()">Cancel</button>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const variants = {{ variants|safe }};
+    const product = {{ product|safe }};
+    const productVariants = {{ product_variants|safe }};
+    const productVariantPrices = {{ product_variant_prices|safe }};
+
+    const productForm = document.getElementById('productForm');
+    const productName = document.getElementById('product_name');
+    const productSku = document.getElementById('product_sku');
+    const description = document.getElementById('description');
+    const variantsContainer = document.getElementById('variantsContainer');
+    const variantsPreview = document.getElementById('variantsPreview');
+    
+    let productVariant = productVariants.length ? productVariants.map(v => ({
+        option: v['variant__id'],
+        tags: v.variant_title.split('/')
+    })) : [{
+        option: variants[0]?.id,
+        tags: []
+    }];
+    let productVariantPricesState = productVariantPrices.length ? productVariantPrices.map(p => ({
+        title: [p.product_variant_one, p.product_variant_two, p.product_variant_three].filter(Boolean).join('/'),
+        price: p.price,
+        stock: p.stock
+    })) : [];
+
+    // Initialize form values
+    productName.value = product.title;
+    productSku.value = product.sku;
+    description.value = product.description;
+
+    function renderVariants() {
+        variantsContainer.innerHTML = '';
+        productVariant.forEach((item, index) => {
+            const variantElement = document.createElement('div');
+            variantElement.classList.add('row');
+            variantElement.innerHTML = `
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="option_${index}">Option</label>
+                        <select id="option_${index}" data-index="${index}" class="form-control variant-option">
+                            ${variants.map(variant => `
+                                <option value="${variant.id}" ${variant.id === item.option ? 'selected' : ''}>
+                                    ${variant.title}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-8">
+                    <div class="form-group">
+                        <label ${productVariant.length != 1 ? `onclick="removeVariant(${index})"` : ''} class="float-right text-primary" style="cursor: pointer;">
+                            ${productVariant.length != 1 ? 'Remove' : ''}
+                        </label>
+                        <input type="text" class="form-control variant-tags" data-index="${index}" value="${item.tags.join(', ')}">
+                    </div>
+                </div>
+            `;
+            variantsContainer.appendChild(variantElement);
+        });
+    }
+
+    function renderPreview() {
+        variantsPreview.innerHTML = '';
+        productVariantPricesState.forEach((variantPrice, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${variantPrice.title}</td>
+                <td><input type="text" class="form-control variant-price" data-index="${index}" value="${variantPrice.price}"></td>
+                <td><input type="text" class="form-control variant-stock" data-index="${index}" value="${variantPrice.stock}"></td>
+            `;
+            variantsPreview.appendChild(row);
+        });
+    }
+
+    function updateVariants() {
+        const tags = productVariant.map(item => item.tags);
+        productVariantPricesState = getCombinations(tags).map(combination => ({
+            title: combination.slice(0, -1),  // Remove the trailing '/'
+            price: 0,
+            stock: 0
+        }));
+        renderPreview();
+    }
+
+    function getCombinations(arr, pre = '') {
+        if (!arr.length) {
+            return [pre];
+        }
+        return arr[0].reduce((acc, value) => acc.concat(getCombinations(arr.slice(1), pre + value + '/')), []);
+    }
+
+    window.removeVariant = function(index) {
+        productVariant.splice(index, 1);
+        updateVariants();
+        renderVariants();
+    };
+
+    document.getElementById('addVariant').addEventListener('click', function () {
+        if (productVariant.length < variants.length && productVariant.length < 3) {
+            const allVariants = variants.map(el => el.id);
+            const selectedVariants = productVariant.map(el => el.option);
+            const availableVariants = allVariants.filter(variant => !selectedVariants.includes(variant));
+
+            if (availableVariants.length > 0) {
+                productVariant.push({
+                    option: availableVariants[0],
+                    tags: []
+                });
+                updateVariants();
+                renderVariants();
+            }
+        }
+    });
+
+    productForm.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(productForm);
+        formData.append('product_variant', JSON.stringify(productVariant));
+        formData.append('product_variant_prices', JSON.stringify(productVariantPricesState));
+        
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            const headers = {
+                'X-CSRFToken': csrfToken
+            };
+
+            let response;
+            if (product.id) {
+                response = await axios.post(`/product/api/update/${product.id}/`, formData, { headers });
+            } else {
+                response = await axios.post('/product/api/create/', formData, { headers });
+            }
+
+            console.log(response.data);
+            window.location.href = '/product/list/';
+        } catch (error) {
+            console.error('Error saving product:', error);
+        }
+    });
+
+    window.cancel = function() {
+        window.location.href = '/product/list/';
+    };
+
+    renderVariants();
+    renderPreview();
+});
+</script>
+
+{% endblock %}

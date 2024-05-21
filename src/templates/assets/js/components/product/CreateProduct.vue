@@ -91,7 +91,7 @@
     </div>
 
     <button @click="saveProduct" type="submit" class="btn btn-lg btn-primary">Save</button>
-    <button type="button" class="btn btn-secondary btn-lg">Cancel</button>
+    <button type="button" class="btn btn-secondary btn-lg" @click="cancel">Cancel</button>
   </section>
 </template>
 
@@ -110,21 +110,43 @@ export default {
     variants: {
       type: Array,
       required: true
+    },
+    product: {
+      type: Object,
+      default: () => ({
+        title: '',
+        sku: '',
+        description: '',
+        id: null
+      })
+    },
+    productVariants: {
+      type: Array,
+      default: () => []
+    },
+    productVariantPrices: {
+      type: Array,
+      default: () => []
     }
   },
   data() {
     return {
-      product_name: '',
-      product_sku: '',
-      description: '',
+      product_name: this.product.title,
+      product_sku: this.product.sku,
+      description: this.product.description,
       images: [],
-      product_variant: [
-        {
-          option: this.variants[0]?.id,
-          tags: []
-        }
-      ],
-      product_variant_prices: [],
+      product_variant: this.productVariants.length ? this.productVariants.map(v => ({
+        option: v['variant__id'],
+        tags: v.variant_title.split('/')
+      })) : [{
+        option: this.variants[0]?.id,
+        tags: []
+      }],
+      product_variant_prices: this.productVariantPrices.length ? this.productVariantPrices.map(p => ({
+        title: [p.product_variant_one, p.product_variant_two, p.product_variant_three].filter(Boolean).join('/'),
+        price: p.price,
+        stock: p.stock
+      })) : [],
       dropzoneOptions: {
         url: 'https://httpbin.org/post',
         thumbnailWidth: 150,
@@ -185,14 +207,25 @@ export default {
         
         axios.defaults.headers.common['X-CSRFToken'] = csrfToken;
 
-        const response = await axios.post('/product/api/create/', product);
-        console.log(response.data);
+        if (this.product.id) {
+          const response = await axios.post(`/product/api/update/${this.product.id}/`, product);
+          console.log(response.data);
+        } else {
+          const response = await axios.post('/product/api/create/', product);
+          console.log(response.data);
+        }
         
-        // Redirect to product list page after successful creation
+        // Redirect to product list page after successful creation or update
         window.location.href = '/product/list/';
       } catch (error) {
         console.error('Error saving product:', error);
       }
+    },
+    addImage(file, dataUrl) {
+      this.images.push(dataUrl);
+    },
+    cancel() {
+      window.location.href = '/product/list/';
     }
   },
   mounted() {
