@@ -114,13 +114,6 @@ from product.serializers import ProductSerializer, ProductVariantSerializer, Pro
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from product.models import Product, ProductVariant, ProductVariantPrice
-from product.serializers import ProductSerializer, ProductVariantSerializer, ProductVariantPriceSerializer
-
-
 class ProductCreateApiView(APIView):
     def post(self, request, *args, **kwargs):
         data = request.data
@@ -144,9 +137,10 @@ class ProductCreateApiView(APIView):
         variants_data = data.get('product_variant', [])
         for variant_data in variants_data:
             for tag in variant_data['tags']:
-                try:
-                    variant = ProductVariant.objects.get(variant_title=tag, product=product)
-                except ProductVariant.DoesNotExist:
+                variant_query = ProductVariant.objects.filter(variant_title=tag, product=product)
+                if variant_query.exists():
+                    variant = variant_query.first()
+                else:
                     variant = ProductVariant.objects.create(
                         variant_title=tag,
                         variant_id=variant_data['option'],
@@ -159,20 +153,34 @@ class ProductCreateApiView(APIView):
         prices_data = data.get('product_variant_prices', [])
         for price_data in prices_data:
             product_variant_title = price_data['title'][:-1]  # Remove the last character "/" from the title
-            try:
-                variant = ProductVariant.objects.get(variant_title=product_variant_title, product=product)
-            except ProductVariant.DoesNotExist:
-                # If the variant does not exist, continue to the next price_data
-                continue
-            
-            # Create a new variant price
+            variant_titles = product_variant_title.split('/')  # Split the title into separate variant titles
+
+            # Get the ProductVariant objects for each separate variant
+            variants = []
+            for variant_title in variant_titles:
+                variant_query = ProductVariant.objects.filter(variant_title=variant_title, product=product)
+                if variant_query.exists():
+                    variants.append(variant_query.first())
+                else:
+                    # If the variant does not exist, continue to the next price_data
+                    continue
+
+            # Create the ProductVariantPrice object
             product_variant_price = ProductVariantPrice.objects.create(
-                product_variant_one=variant,
                 price=price_data['price'],
                 stock=price_data['stock'],
                 product=product
             )
-        
+
+            # Assign the product variants to the ProductVariantPrice object
+            if variants:
+                product_variant_price.product_variant_one = variants[0]
+            if len(variants) > 1:
+                product_variant_price.product_variant_two = variants[1]
+            if len(variants) > 2:
+                product_variant_price.product_variant_three = variants[2]
+            product_variant_price.save()
+
         return Response(ProductSerializer(product).data, status=status.HTTP_201_CREATED)
 
 
