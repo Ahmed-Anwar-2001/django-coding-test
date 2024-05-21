@@ -189,8 +189,28 @@ export default {
         product_variant_prices: this.product_variant_prices
       }
 
+      // Fetch CSRF token from Django backend
+      axios.get('/product/get-csrf-token/')
+          .then(response => {
+              const csrfToken = response.data.csrfToken;
 
-      axios.post('/product', product).then(response => {
+              // Include CSRF token in Axios headers
+              axios.defaults.headers.common['X-CSRFToken'] = csrfToken;
+
+              // Now you can make your POST request
+              axios.post('/product/api/create/', product)
+                  .then(response => {
+                      console.log(response.data);
+                  })
+                  .catch(error => {
+                      console.error(error);
+                  });
+          })
+          .catch(error => {
+              console.error('Failed to fetch CSRF token:', error);
+          });
+
+      axios.post('/product/api/create/', product).then(response => {
         console.log(response.data);
       }).catch(error => {
         console.log(error);

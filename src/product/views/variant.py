@@ -1,8 +1,10 @@
 from django.views import generic
-from django.views.generic import ListView, CreateView, UpdateView
-
+from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 from product.forms import VariantForm
 from product.models import Variant
+from django.urls import reverse_lazy
+from django.http import JsonResponse
+
 
 
 class BaseVariantView(generic.View):
@@ -32,10 +34,26 @@ class VariantView(BaseVariantView, ListView):
             context['request'] = self.request.GET['title__icontains']
         return context
 
-
+# Variant Edit View
 class VariantCreateView(BaseVariantView, CreateView):
-    pass
+    form_class = VariantForm
+    template_name = 'variants/create.html'
+    success_url = reverse_lazy('product:variants')
 
 
 class VariantEditView(BaseVariantView, UpdateView):
     pk_url_kwarg = 'id'
+
+
+# Delete Variant View
+class VariantDeleteView(DeleteView):
+    model = Variant
+    success_url = reverse_lazy('product:variants')
+
+    def delete(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        self.object.delete()
+        return JsonResponse({'message': 'Variant deleted successfully.'}, status=204)
+
+    def post(self, request, *args, **kwargs):
+        return self.delete(request, *args, **kwargs)
