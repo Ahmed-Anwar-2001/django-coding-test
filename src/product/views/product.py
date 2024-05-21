@@ -114,10 +114,18 @@ from product.serializers import ProductSerializer, ProductVariantSerializer, Pro
 
 
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from product.models import Product, ProductVariant, ProductVariantPrice
+from product.serializers import ProductSerializer, ProductVariantSerializer, ProductVariantPriceSerializer
+
+
 class ProductCreateApiView(APIView):
     def post(self, request, *args, **kwargs):
         data = request.data
         title = data.get('title')
+        
         try:
             product = Product.objects.get(title=title)
         except Product.DoesNotExist:
@@ -131,31 +139,23 @@ class ProductCreateApiView(APIView):
                 product = product_serializer.save()
             else:
                 return Response(product_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create product images
-        images_data = data.get('product_image', [])
-        for image_data in images_data:
-            image_data['product'] = product.id
-            image_serializer = ProductImageSerializer(data=image_data)
-            if image_serializer.is_valid():
-                image_serializer.save()
-            else:
-                return Response(image_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create or retrieve product variants
+        
+        # Create product variants
         variants_data = data.get('product_variant', [])
         for variant_data in variants_data:
-            try:
-                variant_title = variant_data['tags'][0]  # Assuming the first tag is the variant title
-                variant = ProductVariant.objects.get(variant_id=variant_data['option'], product=product)
-            except ProductVariant.DoesNotExist:
-                variant = ProductVariant.objects.create(
-                    variant_title=variant_title,
-                    variant_id=variant_data['option'],
-                    product=product
-                )
+            for tag in variant_data['tags']:
+                try:
+                    variant = ProductVariant.objects.get(variant_title=tag, product=product)
+                except ProductVariant.DoesNotExist:
+                    variant = ProductVariant.objects.create(
+                        variant_title=tag,
+                        variant_id=variant_data['option'],
+                        product=product
+                    )
+                # Save the variant
+                variant.save()
 
-        # Create or retrieve product variant prices for each variant
+        # Create product variant prices for each variant
         prices_data = data.get('product_variant_prices', [])
         for price_data in prices_data:
             product_variant_title = price_data['title'][:-1]  # Remove the last character "/" from the title
@@ -164,26 +164,16 @@ class ProductCreateApiView(APIView):
             except ProductVariant.DoesNotExist:
                 # If the variant does not exist, continue to the next price_data
                 continue
-
-            # Check if a variant price with the same characteristics already exists
-            variant_price_exists = ProductVariantPrice.objects.filter(
+            
+            # Create a new variant price
+            product_variant_price = ProductVariantPrice.objects.create(
                 product_variant_one=variant,
                 price=price_data['price'],
                 stock=price_data['stock'],
                 product=product
-            ).exists()
-
-            # Create a new variant price only if it does not exist
-            if not variant_price_exists:
-                product_variant_price = ProductVariantPrice.objects.create(
-                    product_variant_one=variant,
-                    price=price_data['price'],
-                    stock=price_data['stock'],
-                    product=product
-                )
-
+            )
+        
         return Response(ProductSerializer(product).data, status=status.HTTP_201_CREATED)
-
 
 
 
